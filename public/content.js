@@ -8,7 +8,11 @@ let screenshotData = null;
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'captureScreenshot') {
     captureScreenshot();
+    sendResponse({ success: true });
+  } else if (message.action === 'ping') {
+    sendResponse({ success: true });
   }
+  return true; // Keep message channel open for async response
 });
 
 function captureScreenshot() {

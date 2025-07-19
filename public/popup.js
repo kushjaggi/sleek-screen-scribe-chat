@@ -44,34 +44,55 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
       const tab = tabs[0];
       
+      // Check if tab URL is accessible
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+        status.textContent = 'Error: Cannot capture screenshots on this page type. Please try on a regular webpage.';
+        return;
+      }
+      
       try {
-        // Inject content script if not already injected
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js']
-        });
-        
-        // Also inject CSS
-        await chrome.scripting.insertCSS({
-          target: { tabId: tab.id },
-          files: ['content.css']
-        });
-        
-        // Send message to content script to start screenshot capture
-        chrome.tabs.sendMessage(tab.id, { action: 'captureScreenshot' }, (response) => {
+        // First try to send message to see if content script is already injected
+        chrome.tabs.sendMessage(tab.id, { action: 'ping' }, async (response) => {
           if (chrome.runtime.lastError) {
-            status.textContent = 'Error: Please refresh the page and try again.';
-            console.error('Content script communication error:', chrome.runtime.lastError);
+            // Content script not injected, inject it
+            try {
+              await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['content.js']
+              });
+              
+              await chrome.scripting.insertCSS({
+                target: { tabId: tab.id },
+                files: ['content.css']
+              });
+              
+              // Now send the capture message
+              sendCaptureMessage(tab.id);
+            } catch (injectionError) {
+              console.error('Script injection failed:', injectionError);
+              status.textContent = 'Error: Cannot access this page. Please refresh and try again.';
+            }
           } else {
-            status.textContent = 'Capturing screenshot... Please select an area on the page.';
-            // Close popup to allow user interaction with page
-            window.close();
+            // Content script already exists, send capture message
+            sendCaptureMessage(tab.id);
           }
         });
         
       } catch (error) {
-        status.textContent = 'Error: Unable to capture screenshot. Please refresh the page.';
-        console.error('Script injection error:', error);
+        status.textContent = 'Error: Cannot access this page. Please try on a regular webpage.';
+        console.error('Tab access error:', error);
+      }
+    });
+  }
+  
+  function sendCaptureMessage(tabId) {
+    chrome.tabs.sendMessage(tabId, { action: 'captureScreenshot' }, (response) => {
+      if (chrome.runtime.lastError) {
+        status.textContent = 'Error: Content script communication failed. Please refresh the page.';
+        console.error('Content script communication error:', chrome.runtime.lastError);
+      } else {
+        status.textContent = 'Capturing screenshot... Please select an area on the page.';
+        window.close();
       }
     });
   }
