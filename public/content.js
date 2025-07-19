@@ -1,13 +1,18 @@
+
 // Content script for ScreenScribe AI Extension
 
 let isOverlayActive = false;
 let overlay = null;
 let screenshotData = null;
+let selectedAreaData = null;
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'captureScreenshot') {
-    captureScreenshot();
+  console.log('Content script received message:', message);
+  
+  if (message.action === 'displayScreenshot') {
+    screenshotData = message.screenshot;
+    createOverlay();
     sendResponse({ success: true });
   } else if (message.action === 'ping') {
     sendResponse({ success: true });
@@ -15,22 +20,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true; // Keep message channel open for async response
 });
 
-function captureScreenshot() {
-  if (isOverlayActive) return;
-  
-  // Request screenshot from background script
-  chrome.runtime.sendMessage({ action: 'captureTab' }, (response) => {
-    if (response.success) {
-      screenshotData = response.dataUrl;
-      createOverlay();
-    } else {
-      console.error('Failed to capture screenshot:', response.error);
-    }
-  });
-}
-
 function createOverlay() {
-  if (overlay) return;
+  if (overlay || !screenshotData) return;
   
   isOverlayActive = true;
   
@@ -48,10 +39,12 @@ function createOverlay() {
         <canvas id="screenscribe-overlay-canvas"></canvas>
       </div>
       <div class="screenscribe-tools">
-        <button id="screenscribe-rectangle" class="tool-btn active">Rectangle</button>
-        <button id="screenscribe-circle" class="tool-btn">Circle</button>
-        <button id="screenscribe-clear" class="tool-btn">Clear</button>
-        <button id="screenscribe-chat" class="tool-btn primary">Open Chat</button>
+        <button id="screenscribe-rectangle" class="tool-btn active">Rectangle Select</button>
+        <button id="screenscribe-clear" class="tool-btn">Clear Selection</button>
+        <button id="screenscribe-chat" class="tool-btn primary">Continue to Chat</button>
+      </div>
+      <div class="screenscribe-instructions">
+        Click and drag on the screenshot to select an area for analysis
       </div>
     </div>
   `;
@@ -72,9 +65,9 @@ function initializeCanvas() {
   
   const img = new Image();
   img.onload = () => {
-    // Set canvas size
-    const maxWidth = window.innerWidth * 0.8;
-    const maxHeight = window.innerHeight * 0.6;
+    // Set canvas size to fit in overlay while maintaining aspect ratio
+    const maxWidth = Math.min(window.innerWidth * 0.7, 800);
+    const maxHeight = Math.min(window.innerHeight * 0.6, 600);
     const ratio = Math.min(maxWidth / img.width, maxHeight / img.height);
     
     canvas.width = img.width * ratio;
@@ -93,16 +86,14 @@ function setupEventListeners() {
   document.getElementById('screenscribe-close').addEventListener('click', closeOverlay);
   
   // Tool buttons
-  document.getElementById('screenscribe-rectangle').addEventListener('click', () => setTool('rectangle'));
-  document.getElementById('screenscribe-circle').addEventListener('click', () => setTool('circle'));
   document.getElementById('screenscribe-clear').addEventListener('click', clearSelection);
-  document.getElementById('screenscribe-chat').addEventListener('click', openChat);
+  document.getElementById('screenscribe-chat').addEventListener('click', continueToChat);
   
   // Canvas drawing
   const overlayCanvas = document.getElementById('screenscribe-overlay-canvas');
   let isDrawing = false;
   let startPos = { x: 0, y: 0 };
-  let currentTool = 'rectangle';
+  let endPos = { x: 0, y: 0 };
   
   overlayCanvas.addEventListener('mousedown', (e) => {
     isDrawing = true;
@@ -111,83 +102,96 @@ function setupEventListeners() {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top
     };
+    endPos = startPos;
   });
   
   overlayCanvas.addEventListener('mousemove', (e) => {
     if (!isDrawing) return;
     
     const rect = overlayCanvas.getBoundingClientRect();
-    const currentPos = {
+    endPos = {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top
     };
     
-    drawSelection(startPos, currentPos, currentTool);
+    drawSelection(startPos, endPos);
   });
   
   overlayCanvas.addEventListener('mouseup', (e) => {
-    isDrawing = false;
+    if (isDrawing) {
+      isDrawing = false;
+      
+      // Store selected area
+      selectedAreaData = {
+        startX: Math.min(startPos.x, endPos.x),
+        startY: Math.min(startPos.y, endPos.y),
+        width: Math.abs(endPos.x - startPos.x),
+        height: Math.abs(endPos.y - startPos.y),
+        timestamp: Date.now()
+      };
+      
+      console.log('Area selected:', selectedAreaData);
+      
+      // Enable chat button
+      const chatBtn = document.getElementById('screenscribe-chat');
+      chatBtn.disabled = false;
+      chatBtn.textContent = 'Continue to Chat ✓';
+    }
   });
-  
-  function setTool(tool) {
-    currentTool = tool;
-    document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`screenscribe-${tool}`).classList.add('active');
-  }
 }
 
-function drawSelection(start, end, tool) {
+function drawSelection(start, end) {
   const overlayCanvas = document.getElementById('screenscribe-overlay-canvas');
   const ctx = overlayCanvas.getContext('2d');
   
   // Clear overlay
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
   
-  // Draw selection
+  // Draw selection rectangle
   ctx.strokeStyle = '#3b82f6';
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.1)';
   ctx.lineWidth = 2;
   ctx.setLineDash([5, 5]);
   
   const width = end.x - start.x;
   const height = end.y - start.y;
   
-  if (tool === 'rectangle') {
-    ctx.strokeRect(start.x, start.y, width, height);
-  } else if (tool === 'circle') {
-    const centerX = start.x + width / 2;
-    const centerY = start.y + height / 2;
-    const radius = Math.sqrt(width * width + height * height) / 2;
-    
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI);
-    ctx.stroke();
-  }
+  ctx.fillRect(start.x, start.y, width, height);
+  ctx.strokeRect(start.x, start.y, width, height);
 }
 
 function clearSelection() {
   const overlayCanvas = document.getElementById('screenscribe-overlay-canvas');
   const ctx = overlayCanvas.getContext('2d');
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  
+  selectedAreaData = null;
+  
+  // Reset chat button
+  const chatBtn = document.getElementById('screenscribe-chat');
+  chatBtn.disabled = false;
+  chatBtn.textContent = 'Continue to Chat';
 }
 
-function openChat() {
-  // Get selected area data (simplified for demo)
-  const canvas = document.getElementById('screenscribe-canvas');
-  const selectedArea = {
-    x: 0,
-    y: 0,
-    width: canvas.width,
-    height: canvas.height
-  };
+function continueToChat() {
+  if (!selectedAreaData) {
+    alert('Please select an area on the screenshot first');
+    return;
+  }
   
-  // Send to background script
+  // Send screenshot and selected area data to background script
   chrome.runtime.sendMessage({
-    action: 'openChat',
-    selectedArea: selectedArea,
-    screenshot: screenshotData
+    action: 'screenshotCaptured',
+    screenshot: screenshotData,
+    selectedArea: selectedAreaData
+  }, (response) => {
+    if (response && response.success) {
+      console.log('Screenshot data sent to background successfully');
+      closeOverlay();
+    } else {
+      console.error('Failed to send screenshot data');
+    }
   });
-  
-  closeOverlay();
 }
 
 function closeOverlay() {
@@ -195,5 +199,7 @@ function closeOverlay() {
     overlay.remove();
     overlay = null;
     isOverlayActive = false;
+    screenshotData = null;
+    selectedAreaData = null;
   }
 }

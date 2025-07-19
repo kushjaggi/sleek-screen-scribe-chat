@@ -3,6 +3,7 @@
 
 let currentScreenshot = null;
 let selectedArea = null;
+let isCapturing = false;
 
 document.addEventListener('DOMContentLoaded', () => {
   const captureBtn = document.getElementById('captureBtn');
@@ -22,79 +23,104 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') sendMessage();
   });
   
+  // Listen for messages from background script
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    handleBackgroundMessage(message);
+  });
+  
   function loadSavedData() {
-    chrome.storage.local.get(['selectedArea', 'screenshot'], (result) => {
-      if (result.screenshot) {
-        currentScreenshot = result.screenshot;
-        displayScreenshot(result.screenshot);
-        status.textContent = 'Screenshot loaded! You can now chat about it.';
-      }
+    chrome.storage.local.get(['currentScreenshot', 'selectedArea', 'timestamp'], (result) => {
+      console.log('Loaded saved data:', result);
       
-      if (result.selectedArea) {
-        selectedArea = result.selectedArea;
-        addMessage('bot', 'Selected area detected! What would you like to know about it?');
+      if (result.currentScreenshot) {
+        currentScreenshot = result.currentScreenshot;
+        displayScreenshot(result.currentScreenshot);
+        
+        if (result.selectedArea) {
+          selectedArea = result.selectedArea;
+          status.textContent = 'Screenshot loaded with selected area! You can chat about it.';
+          addMessage('bot', 'I can see your selected area! What would you like to know about it?');
+        } else {
+          status.textContent = 'Screenshot loaded! Select an area to analyze.';
+        }
       }
     });
   }
   
   function captureScreenshot() {
-    status.textContent = 'Starting screenshot capture...';
+    if (isCapturing) return;
+    
+    isCapturing = true;
+    captureBtn.disabled = true;
+    captureBtn.textContent = 'Capturing...';
+    status.textContent = 'Preparing screenshot capture...';
     
     // Get current active tab
-    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const tab = tabs[0];
       
       // Check if tab URL is accessible
       if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+        resetCaptureState();
         status.textContent = 'Error: Cannot capture screenshots on this page type. Please try on a regular webpage.';
         return;
       }
       
-      try {
-        // First try to send message to see if content script is already injected
-        chrome.tabs.sendMessage(tab.id, { action: 'ping' }, async (response) => {
-          if (chrome.runtime.lastError) {
-            // Content script not injected, inject it
-            try {
-              await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ['content.js']
-              });
-              
-              await chrome.scripting.insertCSS({
-                target: { tabId: tab.id },
-                files: ['content.css']
-              });
-              
-              // Now send the capture message
-              sendCaptureMessage(tab.id);
-            } catch (injectionError) {
-              console.error('Script injection failed:', injectionError);
-              status.textContent = 'Error: Cannot access this page. Please refresh and try again.';
-            }
-          } else {
-            // Content script already exists, send capture message
-            sendCaptureMessage(tab.id);
-          }
-        });
-        
-      } catch (error) {
-        status.textContent = 'Error: Cannot access this page. Please try on a regular webpage.';
-        console.error('Tab access error:', error);
-      }
+      // Send screenshot request to background script
+      chrome.runtime.sendMessage({
+        action: 'requestScreenshot',
+        tabId: tab.id
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          resetCaptureState();
+          status.textContent = 'Error: Failed to request screenshot.';
+          console.error('Screenshot request failed:', chrome.runtime.lastError);
+        } else if (!response.success) {
+          resetCaptureState();
+          status.textContent = `Error: ${response.error}`;
+        } else {
+          status.textContent = 'Screenshot captured! Close popup and select an area on the page.';
+          // Don't close popup immediately - let user see the status
+          setTimeout(() => {
+            window.close();
+          }, 1500);
+        }
+      });
     });
   }
   
-  function sendCaptureMessage(tabId) {
-    chrome.tabs.sendMessage(tabId, { action: 'captureScreenshot' }, (response) => {
-      if (chrome.runtime.lastError) {
-        status.textContent = 'Error: Content script communication failed. Please refresh the page.';
-        console.error('Content script communication error:', chrome.runtime.lastError);
-      } else {
-        status.textContent = 'Capturing screenshot... Please select an area on the page.';
-        window.close();
-      }
-    });
+  function handleBackgroundMessage(message) {
+    console.log('Popup received message:', message);
+    
+    switch (message.action) {
+      case 'screenshotResult':
+        if (message.success) {
+          status.textContent = 'Screenshot ready! Close popup to select area.';
+          resetCaptureState();
+        } else {
+          resetCaptureState();
+          status.textContent = `Error: ${message.error}`;
+        }
+        break;
+        
+      case 'screenshotReady':
+        currentScreenshot = message.screenshot;
+        selectedArea = message.selectedArea;
+        displayScreenshot(message.screenshot);
+        status.textContent = 'Area selected! You can now chat about it.';
+        addMessage('bot', 'Perfect! I can see your selected area. What would you like to know about it?');
+        break;
+        
+      case 'chatDataSaved':
+        status.textContent = 'Chat session ready!';
+        break;
+    }
+  }
+  
+  function resetCaptureState() {
+    isCapturing = false;
+    captureBtn.disabled = false;
+    captureBtn.textContent = '📷 Capture Screenshot';
   }
   
   function displayScreenshot(dataUrl) {
@@ -102,6 +128,7 @@ document.addEventListener('DOMContentLoaded', () => {
     img.src = dataUrl;
     img.style.maxWidth = '100%';
     img.style.maxHeight = '100%';
+    img.style.borderRadius = '6px';
     screenshotPreview.innerHTML = '';
     screenshotPreview.appendChild(img);
   }
@@ -110,17 +137,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const message = chatInput.value.trim();
     if (!message) return;
     
+    if (!currentScreenshot) {
+      addMessage('bot', 'Please capture a screenshot first before asking questions.');
+      return;
+    }
+    
     // Add user message
     addMessage('user', message);
     chatInput.value = '';
     
-    // Simulate AI response (this would connect to your backend)
+    // Simulate AI response with context about screenshot
     setTimeout(() => {
       const responses = [
-        "I can see the selected area from your screenshot. Based on the visual elements, I notice...",
-        "The selected region contains interesting UI elements. To provide better analysis, please connect the extension to Azure OpenAI.",
-        "This appears to be a specific part of the webpage. What specific aspect would you like me to analyze?",
-        "I'm analyzing the screenshot data. For advanced AI insights, ensure the backend is connected to Azure OpenAI services."
+        "I can analyze your screenshot. Based on the selected area, I can see various UI elements and content.",
+        "Looking at your selected region, I notice specific interface components. What particular aspect interests you?",
+        "I'm examining the screenshot data from your selection. The visual elements show interesting patterns.",
+        "Based on your screenshot selection, I can provide insights about the UI design and layout.",
+        "Your selected area contains rich visual information. What specific analysis would you like me to focus on?"
       ];
       
       const randomResponse = responses[Math.floor(Math.random() * responses.length)];
@@ -134,14 +167,5 @@ document.addEventListener('DOMContentLoaded', () => {
     messageDiv.textContent = content;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
-  }
-});
-
-// Listen for messages from background script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'screenshotCaptured') {
-    currentScreenshot = message.dataUrl;
-    displayScreenshot(message.dataUrl);
-    document.getElementById('status').textContent = 'Screenshot captured! Select an area to analyze.';
   }
 });
