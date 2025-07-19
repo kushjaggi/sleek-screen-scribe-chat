@@ -1,3 +1,4 @@
+
 // Popup script for ScreenScribe AI Extension
 
 let currentScreenshot = null;
@@ -40,20 +41,39 @@ document.addEventListener('DOMContentLoaded', () => {
     status.textContent = 'Starting screenshot capture...';
     
     // Get current active tab
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      // Send message to content script
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'captureScreenshot' }, (response) => {
-        if (chrome.runtime.lastError) {
-          status.textContent = 'Error: Please refresh the page and try again.';
-          console.error(chrome.runtime.lastError);
-        } else {
-          status.textContent = 'Capturing screenshot... Please select an area on the page.';
-        }
-      });
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      const tab = tabs[0];
+      
+      try {
+        // Inject content script if not already injected
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content.js']
+        });
+        
+        // Also inject CSS
+        await chrome.scripting.insertCSS({
+          target: { tabId: tab.id },
+          files: ['content.css']
+        });
+        
+        // Send message to content script to start screenshot capture
+        chrome.tabs.sendMessage(tab.id, { action: 'captureScreenshot' }, (response) => {
+          if (chrome.runtime.lastError) {
+            status.textContent = 'Error: Please refresh the page and try again.';
+            console.error('Content script communication error:', chrome.runtime.lastError);
+          } else {
+            status.textContent = 'Capturing screenshot... Please select an area on the page.';
+            // Close popup to allow user interaction with page
+            window.close();
+          }
+        });
+        
+      } catch (error) {
+        status.textContent = 'Error: Unable to capture screenshot. Please refresh the page.';
+        console.error('Script injection error:', error);
+      }
     });
-    
-    // Close popup to allow user interaction with page
-    window.close();
   }
   
   function displayScreenshot(dataUrl) {
