@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScreenScribe AI</title>
+  <style>
+    body {
+      width: 400px;
+      height: 600px;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f9fafb;
+    }
+    
+    .popup-header {
+      background: #3b82f6;
+      color: white;
+      padding: 16px;
+      text-align: center;
+    }
+    
+    .popup-header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+    }
+    
+    .popup-content {
+      padding: 20px;
+      height: calc(100% - 88px);
+      overflow-y: auto;
+    }
+    
+    .screenshot-preview {
+      width: 100%;
+      height: 200px;
+      background: #e5e7eb;
+      border-radius: 8px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #6b7280;
+      border: 2px dashed #d1d5db;
+    }
+    
+    .screenshot-preview img {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 6px;
+    }
+    
+    .chat-container {
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #d1d5db;
+      height: 300px;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .chat-messages {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+    
+    .chat-input-container {
+      padding: 12px;
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      gap: 8px;
+    }
+    
+    .chat-input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    
+    .send-btn {
+      padding: 8px 16px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    .send-btn:hover {
+      background: #2563eb;
+    }
+    
+    .capture-btn {
+      width: 100%;
+      padding: 12px;
+      background: #10b981;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    
+    .capture-btn:hover {
+      background: #059669;
+    }
+    
+    .message {
+      margin-bottom: 12px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      max-width: 80%;
+    }
+    
+    .message.user {
+      background: #3b82f6;
+      color: white;
+      margin-left: auto;
+    }
+    
+    .message.bot {
+      background: #f3f4f6;
+      color: #374151;
+    }
+    
+    .status {
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="popup-header">
+    <h1>ScreenScribe AI</h1>
+  </div>
+  
+  <div class="popup-content">
+    <button id="captureBtn" class="capture-btn">📷 Capture Screenshot</button>
+    
+    <div class="status" id="status">Click "Capture Screenshot" to start</div>
+    
+    <div id="screenshotPreview" class="screenshot-preview">
+      <span>Screenshot will appear here</span>
+    </div>
+    
+    <div class="chat-container">
+      <div id="chatMessages" class="chat-messages">
+        <div class="message bot">
+          Welcome to ScreenScribe AI! Capture a screenshot and select an area to start chatting about it.
+        </div>
+      </div>
+      
+      <div class="chat-input-container">
+        <input type="text" id="chatInput" class="chat-input" placeholder="Ask about the selected area...">
+        <button id="sendBtn" class="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
